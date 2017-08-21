@@ -146,60 +146,114 @@ const invoke = function(L, p, thisarg, args, n_results) {
 	for (let i=0; i<args.length; i++) {
 		push(L, args[i]);
 	}
-	lua.lua_call(L, 1+args.length, n_results);
-	let nres = lua.lua_gettop(L)-base;
-	let res = new Array(nres);
-	for (let i=0; i<nres; i++) {
-		res[i] = tojs(L, base+i+1);
+	switch(lua.lua_pcall(L, 1+args.length, n_results, 0)) {
+	case lua.LUA_OK:
+		let nres = lua.lua_gettop(L)-base;
+		let res = new Array(nres);
+		for (let i=0; i<nres; i++) {
+			res[i] = tojs(L, base+i+1);
+		}
+		lua.lua_settop(L, base);
+		return res;
+	default:
+		let r = tojs(L, -1);
+		lua.lua_settop(L, base);
+		throw r;
 	}
-	lua.lua_settop(L, base);
-	return res;
 };
 
 const get = function(L, p, prop) {
-	lauxlib.luaL_checkstack(L, 2);
+	lauxlib.luaL_checkstack(L, 3);
+	lua.lua_pushcfunction(L, function(L) {
+		lua.lua_gettable(L, 1);
+		return 1;
+	});
 	p(L);
 	push(L, prop);
-	lua.lua_gettable(L, -2);
+	let status = lua.lua_pcall(L, 2, 1, 0);
 	let r = tojs(L, -1);
-	lua.lua_pop(L, 2);
-	return r;
+	lua.lua_pop(L, 1);
+	switch(status) {
+	case lua.LUA_OK:
+		return r;
+	default:
+		throw r;
+	}
 };
 
 const has = function(L, p, prop) {
-	lauxlib.luaL_checkstack(L, 2);
+	lauxlib.luaL_checkstack(L, 3);
+	lua.lua_pushcfunction(L, function(L) {
+		lua.lua_gettable(L, 1);
+		return 1;
+	});
 	p(L);
 	push(L, prop);
-	lua.lua_gettable(L, -2);
+	let status = lua.lua_pcall(L, 2, 1, 0);
 	let r = lua.lua_isnil(L, -1);
-	lua.lua_pop(L, 2);
-	return r;
+	lua.lua_pop(L, 1);
+	switch(status) {
+	case lua.LUA_OK:
+		return r;
+	default:
+		throw r;
+	}
 };
 
 const set = function(L, p, prop, value) {
-	lauxlib.luaL_checkstack(L, 3);
+	lauxlib.luaL_checkstack(L, 4);
+	lua.lua_pushcfunction(L, function(L) {
+		lua.lua_settable(L, 1);
+		return 0;
+	});
 	p(L);
 	push(L, prop);
 	push(L, value);
-	lua.lua_settable(L, -3);
-	lua.lua_pop(L, 1);
+	switch(lua.lua_pcall(L, 3, 0, 0)) {
+	case lua.LUA_OK:
+		return;
+	default:
+		let r = tojs(L, -1);
+		lua.lua_pop(L, 1);
+		throw r;
+	}
 };
 
 const deleteProperty = function(L, p, prop) {
-	lauxlib.luaL_checkstack(L, 3);
+	lauxlib.luaL_checkstack(L, 4);
+	lua.lua_pushcfunction(L, function(L) {
+		lua.lua_settable(L, 1);
+		return 0;
+	});
 	p(L);
 	push(L, prop);
 	lua.lua_pushnil(L);
-	lua.lua_settable(L, -3);
-	lua.lua_pop(L, 1);
+	switch(lua.lua_pcall(L, 3, 0, 0)) {
+	case lua.LUA_OK:
+		return;
+	default:
+		let r = tojs(L, -1);
+		lua.lua_pop(L, 1);
+		throw r;
+	}
 };
 
 const tostring = function(L, p) {
-	lauxlib.luaL_checkstack(L, 1);
+	lauxlib.luaL_checkstack(L, 2);
+	lua.lua_pushcfunction(L, function(L) {
+		lauxlib.luaL_tolstring(L, 1);
+		return 1;
+	});
 	p(L);
-	let r = lauxlib.luaL_tolstring(L, -1);
-	lua.lua_pop(L, 2);
-	return lua.to_jsstring(r);
+	let status = lua.lua_pcall(L, 1, 1, 0)
+	let r = lua.lua_tojsstring(L, -1);
+	lua.lua_pop(L, 1);
+	switch(status) {
+	case lua.LUA_OK:
+		return r;
+	default:
+		throw r;
+	}
 };
 
 /* implements lua's "Generic For" protocol */
